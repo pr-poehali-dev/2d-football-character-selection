@@ -546,13 +546,38 @@ function GameScreen({
           if (keys.has("ArrowDown")) ay2 = 1;
           kick2Key = keys.has("Enter") || keys.has("Numpad0") || keys.has("Slash");
         } else {
-          // Bot AI: chase ball, kick when close
-          const botSpeedFactor = 0.72 + (10 - char2.agility) * 0.015;
-          const tx = ball.x > FIELD_W * 0.55 ? ball.x : FIELD_W * 0.65;
-          const ty = ball.y;
-          ax2 = clamp((tx - p2.x) * 3, -1, 1) * botSpeedFactor;
-          ay2 = clamp((ty - p2.y) * 3, -1, 1) * botSpeedFactor;
-          kick2Key = dist(p2, ball) < PLAYER_R + BALL_R + 10;
+          // Bot AI — aggressive with prediction
+          const dBall = dist(p2, ball);
+          const hasBall = dBall < PLAYER_R + BALL_R + 18;
+
+          // Predict where ball will be in ~0.25s
+          const predictX = ball.x + ball.vx * 0.25;
+          const predictY = ball.y + ball.vy * 0.25;
+
+          let targetX: number;
+          let targetY: number;
+
+          if (hasBall) {
+            // Has ball: drive toward player's goal (left side)
+            targetX = GOAL_W + 10;
+            targetY = FIELD_H / 2;
+          } else if (ball.x < FIELD_W * 0.5) {
+            // Ball in bot's half — rush to intercept predicted position
+            targetX = predictX;
+            targetY = predictY;
+          } else {
+            // Ball in player's half — move to attack position ahead of ball
+            targetX = Math.max(FIELD_W * 0.5, predictX - 40);
+            targetY = predictY;
+          }
+
+          const dx = targetX - p2.x;
+          const dy = targetY - p2.y;
+          const mag = Math.sqrt(dx * dx + dy * dy) || 1;
+          ax2 = (dx / mag) * 1.15;
+          ay2 = (dy / mag) * 1.15;
+
+          kick2Key = hasBall;
         }
 
         // ---- Apply movement ----
