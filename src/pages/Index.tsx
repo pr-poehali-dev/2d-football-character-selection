@@ -184,6 +184,9 @@ function FieldBg({ children }: { children: React.ReactNode }) {
 
 // ===================== MENU =====================
 function MenuScreen({ onStart }: { onStart: () => void }) {
+  const rating = getRating();
+  const { title, icon } = getRatingTitle(rating);
+
   return (
     <FieldBg>
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 px-4">
@@ -243,6 +246,22 @@ function MenuScreen({ onStart }: { onStart: () => void }) {
         >
           ИГРАТЬ! 🎮
         </button>
+
+        {/* Rating badge */}
+        <div
+          className="card-cartoon rounded-2xl px-5 py-2 animate-slide-in-up flex items-center gap-3"
+          style={{
+            background: "rgba(0,0,0,0.65)",
+            animationDelay: "0.45s", opacity: 0, animationFillMode: "forwards",
+          }}
+        >
+          <div className="text-2xl">{icon}</div>
+          <div>
+            <div className="font-fredoka text-white text-sm leading-none">{title}</div>
+            <div className="font-nunito text-xs text-gray-400">Рейтинг vs бот</div>
+          </div>
+          <div className="font-fredoka text-2xl leading-none ml-2" style={{ color: "#FFD700" }}>{rating}</div>
+        </div>
 
         <div className="absolute bottom-6 left-6 text-5xl animate-spin-ball" style={{ animationDuration: "3s" }}>⚽</div>
         <div className="absolute bottom-14 right-10 text-4xl animate-float" style={{ animationDelay: "1.2s" }}>🏆</div>
@@ -1010,6 +1029,28 @@ function StatsScreen({
   );
 }
 
+// ===================== RATING UTILS =====================
+const RATING_KEY = "futbolol_rating";
+const RATING_DELTA = 100;
+
+function getRating(): number {
+  return parseInt(localStorage.getItem(RATING_KEY) || "0", 10);
+}
+function addRating(delta: number): number {
+  const next = Math.max(0, getRating() + delta);
+  localStorage.setItem(RATING_KEY, String(next));
+  return next;
+}
+
+function getRatingTitle(r: number): { title: string; icon: string } {
+  if (r >= 2000) return { title: "Легенда", icon: "👑" };
+  if (r >= 1500) return { title: "Чемпион", icon: "🏆" };
+  if (r >= 1000) return { title: "Профи", icon: "⭐" };
+  if (r >= 500)  return { title: "Любитель", icon: "⚽" };
+  if (r >= 200)  return { title: "Новичок+", icon: "🌱" };
+  return { title: "Новичок", icon: "👶" };
+}
+
 // ===================== RESULT =====================
 function ResultScreen({
   score1, score2, char1Id, char2Id, mode, onRestart, onMenu,
@@ -1020,8 +1061,18 @@ function ResultScreen({
   const char1 = CHARACTERS.find((c) => c.id === char1Id)!;
   const char2 = CHARACTERS.find((c) => c.id === char2Id)!;
   const draw = score1 === score2;
-  const winner = score1 > score2 ? char1 : char2;
-  const loser = score1 > score2 ? char2 : char1;
+  const playerWon = score1 > score2; // player is always char1
+  const winner = playerWon ? char1 : char2;
+  const loser = playerWon ? char2 : char1;
+
+  // Rating calculation
+  const ratingDelta = mode === "vs-bot" && playerWon && !draw ? RATING_DELTA : 0;
+  const [ratingData] = useState(() => {
+    const before = getRating();
+    const after = ratingDelta > 0 ? addRating(ratingDelta) : before;
+    return { before, after, delta: ratingDelta };
+  });
+  const { title: ratingTitle, icon: ratingIcon } = getRatingTitle(ratingData.after);
 
   const funnyMsgs = draw
     ? ["Ничья! Оба молодцы! 🤝", "Дружба победила! Настоящие джентльмены!"]
@@ -1030,29 +1081,30 @@ function ResultScreen({
 
   return (
     <FieldBg>
-      <Confetti />
-      <div className="absolute inset-0 flex flex-col items-center justify-center px-4 gap-5">
+      {!draw && playerWon && <Confetti />}
+      <div className="absolute inset-0 flex flex-col items-center justify-center px-4 gap-4 overflow-y-auto hide-scroll py-2">
         <div className="animate-pop-in text-center">
           {draw ? (
-            <div className="font-fredoka" style={{ fontSize: "clamp(44px,12vw,80px)", color: "#FFD700", textShadow: "4px 4px 0 #1a1a1a" }}>
+            <div className="font-fredoka" style={{ fontSize: "clamp(40px,10vw,72px)", color: "#FFD700", textShadow: "4px 4px 0 #1a1a1a" }}>
               🤝 НИЧЬЯ! 🤝
             </div>
           ) : (
             <>
-              <div className="font-fredoka text-2xl text-white" style={{ textShadow: "2px 2px 0 #1a1a1a" }}>ПОБЕДИТЕЛЬ!</div>
-              <div className="font-fredoka" style={{ fontSize: "clamp(40px,11vw,72px)", color: "#FFD700", textShadow: "4px 4px 0 #1a1a1a" }}>
+              <div className="font-fredoka text-xl text-white" style={{ textShadow: "2px 2px 0 #1a1a1a" }}>ПОБЕДИТЕЛЬ!</div>
+              <div className="font-fredoka" style={{ fontSize: "clamp(36px,10vw,68px)", color: "#FFD700", textShadow: "4px 4px 0 #1a1a1a" }}>
                 {winner.emoji} {winner.name}!
               </div>
             </>
           )}
         </div>
 
-        <div className="card-cartoon rounded-3xl p-5 w-full max-w-sm animate-slide-in-up" style={{ background: "rgba(0,0,0,0.8)" }}>
+        {/* Score card */}
+        <div className="card-cartoon rounded-3xl p-4 w-full max-w-sm animate-slide-in-up" style={{ background: "rgba(0,0,0,0.8)" }}>
           <div className="flex items-center justify-around">
             <div className="text-center">
               <div
-                className={`rounded-2xl overflow-hidden mx-auto mb-2 ${!draw && winner.id === char1Id ? "animate-bounce-fun" : ""}`}
-                style={{ width: 66, height: 66, border: `3px solid ${char1.color}`, boxShadow: !draw && winner.id === char1Id ? `0 0 18px ${char1.color}` : "none" }}
+                className={`rounded-2xl overflow-hidden mx-auto mb-1 ${!draw && winner.id === char1Id ? "animate-bounce-fun" : ""}`}
+                style={{ width: 60, height: 60, border: `3px solid ${char1.color}`, boxShadow: !draw && winner.id === char1Id ? `0 0 18px ${char1.color}` : "none" }}
               >
                 <img src={char1.image} alt="" className="w-full h-full object-cover" />
               </div>
@@ -1061,7 +1113,7 @@ function ResultScreen({
             </div>
 
             <div className="text-center">
-              <div className="font-fredoka text-7xl leading-none" style={{ color: "#FFD700", textShadow: "3px 3px 0 #000" }}>
+              <div className="font-fredoka text-6xl leading-none" style={{ color: "#FFD700", textShadow: "3px 3px 0 #000" }}>
                 {score1}:{score2}
               </div>
               <div className="font-nunito text-gray-400 text-xs mt-1">ФИНАЛ</div>
@@ -1069,8 +1121,8 @@ function ResultScreen({
 
             <div className="text-center">
               <div
-                className={`rounded-2xl overflow-hidden mx-auto mb-2 ${!draw && winner.id === char2Id ? "animate-bounce-fun" : ""}`}
-                style={{ width: 66, height: 66, border: `3px solid ${char2.color}`, boxShadow: !draw && winner.id === char2Id ? `0 0 18px ${char2.color}` : "none" }}
+                className={`rounded-2xl overflow-hidden mx-auto mb-1 ${!draw && winner.id === char2Id ? "animate-bounce-fun" : ""}`}
+                style={{ width: 60, height: 60, border: `3px solid ${char2.color}`, boxShadow: !draw && winner.id === char2Id ? `0 0 18px ${char2.color}` : "none" }}
               >
                 <img src={char2.image} alt="" className="w-full h-full object-cover" />
               </div>
@@ -1079,8 +1131,65 @@ function ResultScreen({
             </div>
           </div>
 
-          <div className="font-nunito text-center text-white text-sm mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,0.18)" }}>
+          <div className="font-nunito text-center text-white text-sm mt-2 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.18)" }}>
             {msg}
+          </div>
+        </div>
+
+        {/* Rating block */}
+        <div
+          className="card-cartoon rounded-2xl p-4 w-full max-w-sm animate-slide-in-up"
+          style={{
+            background: ratingData.delta > 0
+              ? "linear-gradient(135deg, rgba(255,215,0,0.18), rgba(255,165,0,0.12))"
+              : "rgba(0,0,0,0.55)",
+            animationDelay: "0.15s", opacity: 0, animationFillMode: "forwards",
+            border: ratingData.delta > 0 ? "3px solid #FFD700" : "3px solid #1a1a1a",
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-fredoka text-lg text-white leading-none">
+                {ratingIcon} {ratingTitle}
+              </div>
+              <div className="font-nunito text-xs text-gray-300 mt-0.5">Мой рейтинг</div>
+            </div>
+            <div className="text-right">
+              <div className="font-fredoka text-3xl leading-none" style={{ color: "#FFD700" }}>
+                {ratingData.after}
+              </div>
+              {ratingData.delta > 0 && (
+                <div className="font-fredoka text-sm animate-pop-in" style={{ color: "#4ade80" }}>
+                  +{ratingData.delta} ✨
+                </div>
+              )}
+              {ratingData.delta === 0 && mode === "vs-bot" && !draw && !playerWon && (
+                <div className="font-nunito text-xs text-gray-400">без изменений</div>
+              )}
+              {mode === "vs-player" && (
+                <div className="font-nunito text-xs text-gray-400">рейтинг только с ботом</div>
+              )}
+            </div>
+          </div>
+
+          {/* Rating progress bar */}
+          <div className="mt-3">
+            <div className="flex justify-between font-nunito text-xs text-gray-400 mb-1">
+              <span>0</span>
+              <span style={{ color: "#FFD700" }}>след. уровень</span>
+              <span>{Math.ceil(ratingData.after / 500) * 500}</span>
+            </div>
+            <div style={{ background: "rgba(255,255,255,0.12)", borderRadius: 999, height: 8, border: "1px solid rgba(255,255,255,0.2)" }}>
+              <div
+                style={{
+                  width: `${(ratingData.after % 500) / 5}%`,
+                  height: "100%",
+                  borderRadius: 999,
+                  background: "linear-gradient(90deg, #FFD700, #FFA500)",
+                  transition: "width 1s ease",
+                }}
+              />
+            </div>
           </div>
         </div>
 
