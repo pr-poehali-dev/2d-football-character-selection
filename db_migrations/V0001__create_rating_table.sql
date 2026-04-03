@@ -1,0 +1,11 @@
+CREATE TABLE IF NOT EXISTS rating (
+  id SERIAL PRIMARY KEY,
+  player_name VARCHAR(32) NOT NULL,
+  score INTEGER NOT NULL DEFAULT 0,
+  wins INTEGER NOT NULL DEFAULT 0,
+  losses INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rating_player_name ON rating(player_name);

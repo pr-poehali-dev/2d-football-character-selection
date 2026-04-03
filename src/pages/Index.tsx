@@ -1,8 +1,25 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 // ===================== TYPES =====================
-type Screen = "menu" | "select" | "select2" | "mode" | "game" | "stats" | "result";
-type GameMode = "vs-bot" | "vs-player";
+type Screen = "menu" | "nickname" | "leaderboard" | "select" | "select2" | "mode" | "game" | "stats" | "result" | "game5";
+type GameMode = "vs-bot" | "vs-player" | "5player";
+
+const RATING_API = "https://functions.poehali.dev/138540aa-db1c-4c08-a3b9-fd1da86b8f95";
+
+async function apiPostResult(name: string, won: boolean) {
+  await fetch(RATING_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, won }),
+  }).catch(() => null);
+}
+
+async function apiGetLeaderboard(): Promise<{ name: string; score: number; wins: number; losses: number }[]> {
+  const r = await fetch(RATING_API).catch(() => null);
+  if (!r) return [];
+  const d = await r.json().catch(() => ({}));
+  return d.leaderboard || [];
+}
 
 interface Character {
   id: number;
@@ -183,7 +200,7 @@ function FieldBg({ children }: { children: React.ReactNode }) {
 }
 
 // ===================== MENU =====================
-function MenuScreen({ onStart }: { onStart: () => void }) {
+function MenuScreen({ onStart, onLeaderboard }: { onStart: () => void; onLeaderboard: () => void }) {
   const rating = getRating();
   const { title, icon } = getRatingTitle(rating);
 
@@ -231,21 +248,22 @@ function MenuScreen({ onStart }: { onStart: () => void }) {
           ))}
         </div>
 
-        <button
-          onClick={onStart}
-          className="btn-cartoon font-fredoka rounded-2xl animate-slide-in-up"
-          style={{
-            fontSize: "clamp(22px, 5vw, 32px)",
-            padding: "12px 48px",
-            background: "linear-gradient(135deg, #FFD700, #FFA500)",
-            color: "#1a1a1a",
-            animationDelay: "0.3s",
-            opacity: 0,
-            animationFillMode: "forwards",
-          }}
-        >
-          ИГРАТЬ! 🎮
-        </button>
+        <div className="flex gap-3 animate-slide-in-up" style={{ animationDelay: "0.3s", opacity: 0, animationFillMode: "forwards" }}>
+          <button
+            onClick={onStart}
+            className="btn-cartoon font-fredoka rounded-2xl"
+            style={{ fontSize: "clamp(22px, 5vw, 32px)", padding: "12px 48px", background: "linear-gradient(135deg, #FFD700, #FFA500)", color: "#1a1a1a" }}
+          >
+            ИГРАТЬ! 🎮
+          </button>
+          <button
+            onClick={onLeaderboard}
+            className="btn-cartoon font-fredoka rounded-2xl"
+            style={{ fontSize: "clamp(18px, 4vw, 26px)", padding: "12px 20px", background: "linear-gradient(135deg, #4361ee, #3a0ca3)", color: "white" }}
+          >
+            🏆
+          </button>
+        </div>
 
         {/* Rating badge */}
         <div
@@ -395,6 +413,15 @@ function ModeScreen({ onSelect, onBack }: { onSelect: (m: GameMode) => void; onB
           >
             <div className="font-fredoka text-3xl mb-1">👥 Вдвоём</div>
             <div className="font-nunito text-sm opacity-80">Сразись с другом на одном устройстве! Кто круче?</div>
+          </button>
+
+          <button
+            onClick={() => onSelect("5player")}
+            className="btn-cartoon rounded-2xl p-5 text-left animate-slide-in-left"
+            style={{ background: "linear-gradient(135deg, #2d6a4f, #1b4332)", color: "white", animationDelay: "0.2s", opacity: 0, animationFillMode: "forwards" }}
+          >
+            <div className="font-fredoka text-3xl mb-1">⚽ 5 игроков</div>
+            <div className="font-nunito text-sm opacity-80">3 vs 3 боты! Tab — переключай между игроками своей команды</div>
           </button>
         </div>
 
@@ -1078,23 +1105,27 @@ function getRatingTitle(r: number): { title: string; icon: string } {
 
 // ===================== RESULT =====================
 function ResultScreen({
-  score1, score2, char1Id, char2Id, mode, onRestart, onMenu,
+  score1, score2, char1Id, char2Id, mode, playerName, onRestart, onMenu,
 }: {
   score1: number; score2: number; char1Id: number; char2Id: number;
-  mode: GameMode; onRestart: () => void; onMenu: () => void;
+  mode: GameMode; playerName: string; onRestart: () => void; onMenu: () => void;
 }) {
   const char1 = CHARACTERS.find((c) => c.id === char1Id)!;
   const char2 = CHARACTERS.find((c) => c.id === char2Id)!;
   const draw = score1 === score2;
-  const playerWon = score1 > score2; // player is always char1
+  const playerWon = score1 > score2;
   const winner = playerWon ? char1 : char2;
   const loser = playerWon ? char2 : char1;
 
-  // Rating calculation
+  // Local rating + API sync
   const ratingDelta = mode === "vs-bot" && playerWon && !draw ? RATING_DELTA : 0;
   const [ratingData] = useState(() => {
     const before = getRating();
     const after = ratingDelta > 0 ? addRating(ratingDelta) : before;
+    // Send to global leaderboard if name is set
+    if (playerName && mode === "vs-bot") {
+      apiPostResult(playerName, playerWon && !draw);
+    }
     return { before, after, delta: ratingDelta };
   });
   const { title: ratingTitle, icon: ratingIcon } = getRatingTitle(ratingData.after);
@@ -1231,6 +1262,468 @@ function ResultScreen({
   );
 }
 
+// ===================== NICKNAME SCREEN =====================
+function NicknameScreen({ current, onConfirm, onBack }: { current: string; onConfirm: (name: string) => void; onBack: () => void }) {
+  const [val, setVal] = useState(current);
+  return (
+    <FieldBg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 px-4">
+        <div className="animate-pop-in text-center">
+          <div className="font-fredoka text-5xl" style={{ color: "#FFD700", textShadow: "3px 3px 0 #1a1a1a" }}>
+            👤 Твоё имя!
+          </div>
+          <div className="font-nunito text-white text-sm mt-1" style={{ textShadow: "1px 1px 0 #000" }}>
+            Оно появится в таблице рейтинга
+          </div>
+        </div>
+        <div className="card-cartoon rounded-2xl p-5 w-full max-w-sm animate-slide-in-up" style={{ background: "rgba(255,255,255,0.95)" }}>
+          <input
+            className="w-full font-fredoka text-2xl text-center rounded-xl px-4 py-3 outline-none"
+            style={{ border: "3px solid #1a1a1a", fontSize: 24, background: "#fff8e1" }}
+            maxLength={16}
+            placeholder="Введи никнейм..."
+            value={val}
+            onChange={e => setVal(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && val.trim() && onConfirm(val.trim())}
+            autoFocus
+          />
+          <div className="font-nunito text-xs text-gray-400 text-center mt-2">до 16 символов</div>
+        </div>
+        <div className="flex gap-3 animate-slide-in-up" style={{ animationDelay: "0.2s", opacity: 0, animationFillMode: "forwards" }}>
+          <button onClick={onBack} className="btn-cartoon font-fredoka text-lg px-5 py-2 rounded-xl" style={{ background: "#f8f9fa", color: "#1a1a1a" }}>← Назад</button>
+          <button
+            onClick={() => val.trim() && onConfirm(val.trim())}
+            disabled={!val.trim()}
+            className="btn-cartoon font-fredoka text-lg px-8 py-2 rounded-xl disabled:opacity-40"
+            style={{ background: "linear-gradient(135deg, #FFD700, #FFA500)", color: "#1a1a1a" }}
+          >
+            Поехали! 🚀
+          </button>
+        </div>
+      </div>
+    </FieldBg>
+  );
+}
+
+// ===================== LEADERBOARD SCREEN =====================
+function LeaderboardScreen({ playerName, onBack }: { playerName: string; onBack: () => void }) {
+  const [rows, setRows] = useState<{ name: string; score: number; wins: number; losses: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiGetLeaderboard().then(data => { setRows(data); setLoading(false); });
+  }, []);
+
+  const medals = ["🥇", "🥈", "🥉"];
+
+  return (
+    <FieldBg>
+      <div className="absolute inset-0 flex flex-col items-center px-3 pt-3 gap-3 overflow-y-auto hide-scroll">
+        <div className="animate-pop-in text-center">
+          <div className="font-fredoka text-4xl" style={{ color: "#FFD700", textShadow: "3px 3px 0 #1a1a1a" }}>
+            🏆 Таблица рейтинга
+          </div>
+        </div>
+
+        <div className="w-full max-w-md animate-slide-in-up" style={{ opacity: 0, animationFillMode: "forwards" }}>
+          {loading && (
+            <div className="text-center font-fredoka text-white text-xl animate-bounce-fun">Загружаем... ⚽</div>
+          )}
+          {!loading && rows.length === 0 && (
+            <div className="card-cartoon rounded-2xl p-6 text-center" style={{ background: "rgba(255,255,255,0.9)" }}>
+              <div className="font-fredoka text-2xl text-gray-600">Пока пусто!</div>
+              <div className="font-nunito text-gray-400 text-sm mt-1">Сыграй матч и попади в топ 🎯</div>
+            </div>
+          )}
+          {!loading && rows.map((r, i) => {
+            const isMe = r.name === playerName;
+            const { icon } = getRatingTitle(r.score);
+            return (
+              <div
+                key={r.name}
+                className="card-cartoon rounded-xl mb-2 px-4 py-2.5 flex items-center gap-3 animate-slide-in-up"
+                style={{
+                  background: isMe ? "linear-gradient(135deg, rgba(255,215,0,0.25), rgba(255,165,0,0.15))" : "rgba(255,255,255,0.92)",
+                  animationDelay: `${i * 0.04}s`,
+                  opacity: 0,
+                  animationFillMode: "forwards",
+                  border: isMe ? "3px solid #FFD700" : "3px solid #1a1a1a",
+                }}
+              >
+                <div className="font-fredoka text-xl w-7 text-center" style={{ color: i < 3 ? "#1a1a1a" : "#888" }}>
+                  {i < 3 ? medals[i] : `${i + 1}`}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-fredoka text-base leading-none truncate" style={{ color: isMe ? "#b45309" : "#1a1a1a" }}>
+                    {isMe ? "⭐ " : ""}{r.name}
+                  </div>
+                  <div className="font-nunito text-xs text-gray-500">{r.wins}П / {r.losses}П</div>
+                </div>
+                <div className="text-right">
+                  <div className="font-fredoka text-xl" style={{ color: "#e63946" }}>{r.score}</div>
+                  <div className="font-nunito text-xs text-gray-400">{icon}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="pb-4">
+          <button onClick={onBack} className="btn-cartoon font-fredoka text-lg px-8 py-2 rounded-xl" style={{ background: "linear-gradient(135deg, #FFD700, #FFA500)", color: "#1a1a1a" }}>
+            ← Назад
+          </button>
+        </div>
+      </div>
+    </FieldBg>
+  );
+}
+
+// ===================== GAME5 SCREEN (5 players, switch with Tab) =====================
+function Game5Screen({ onFinish }: { onFinish: (s1: number, s2: number, events: string[]) => void }) {
+  // Team 1: chars 0,1,2 | Team 2: chars 3 (bot) + 1 more
+  const TEAM1 = [CHARACTERS[0], CHARACTERS[1], CHARACTERS[2]];
+  const TEAM2 = [CHARACTERS[3], CHARACTERS[1], CHARACTERS[2]];
+
+  const DURATION = 120;
+  const FIELD_W5 = 900;
+  const FIELD_H5 = 500;
+  const P_R = 20;
+  const B_R = 13;
+  const G_W = 20;
+  const G_H = 140;
+  const G_Y = (FIELD_H5 - G_H) / 2;
+
+  interface P5 { x: number; y: number; vx: number; vy: number; team: number; charIdx: number; kickCD: number; facing: number }
+
+  const initPlayers = (): P5[] => [
+    { x: 180, y: FIELD_H5 * 0.3, vx: 0, vy: 0, team: 1, charIdx: 0, kickCD: 0, facing: 1 },
+    { x: 180, y: FIELD_H5 * 0.5, vx: 0, vy: 0, team: 1, charIdx: 1, kickCD: 0, facing: 1 },
+    { x: 180, y: FIELD_H5 * 0.7, vx: 0, vy: 0, team: 1, charIdx: 2, kickCD: 0, facing: 1 },
+    { x: FIELD_W5 - 180, y: FIELD_H5 * 0.3, vx: 0, vy: 0, team: 2, charIdx: 3, kickCD: 0, facing: -1 },
+    { x: FIELD_W5 - 180, y: FIELD_H5 * 0.5, vx: 0, vy: 0, team: 2, charIdx: 1, kickCD: 0, facing: -1 },
+    { x: FIELD_W5 - 180, y: FIELD_H5 * 0.7, vx: 0, vy: 0, team: 2, charIdx: 2, kickCD: 0, facing: -1 },
+  ];
+
+  const playersRef = useRef<P5[]>(initPlayers());
+  const ballRef = useRef({ x: FIELD_W5 / 2, y: FIELD_H5 / 2, vx: 0, vy: 0 });
+  const activeRef = useRef(0); // which team1 player is controlled
+  const keysRef = useRef<Set<string>>(new Set());
+  const scoreRef = useRef({ s1: 0, s2: 0 });
+  const timeRef = useRef(0);
+  const eventsRef = useRef<string[]>([]);
+  const goalLockRef = useRef(false);
+  const doneRef = useRef(false);
+
+  const [display, setDisplay] = useState({
+    players: initPlayers(),
+    ball: { x: FIELD_W5 / 2, y: FIELD_H5 / 2 },
+    score1: 0, score2: 0, time: 0,
+    active: 0,
+  });
+  const [showGoal, setShowGoal] = useState(false);
+  const [goalTeam, setGoalTeam] = useState(0);
+  const [confetti, setConfetti] = useState(false);
+  const [ticker, setTicker] = useState("Tab — переключай игроков! Пробел — удар!");
+
+  const resetAll = useCallback(() => {
+    playersRef.current = initPlayers();
+    ballRef.current = { x: FIELD_W5 / 2, y: FIELD_H5 / 2, vx: 0, vy: 0 };
+  }, []);
+
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      keysRef.current.add(e.code);
+      if (e.code === "Tab") { e.preventDefault(); activeRef.current = (activeRef.current + 1) % 3; }
+      if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].includes(e.code)) e.preventDefault();
+    };
+    const up = (e: KeyboardEvent) => keysRef.current.delete(e.code);
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
+  }, []);
+
+  useEffect(() => {
+    let lastTime = performance.now();
+    let frameId: number;
+    let displayT = 0;
+    let gameT = 0;
+
+    const tick = (now: number) => {
+      if (!doneRef.current) {
+        const dt = Math.min((now - lastTime) / 1000, 0.05);
+        lastTime = now;
+
+        const players = playersRef.current;
+        const ball = ballRef.current;
+        const keys = keysRef.current;
+        const active = activeRef.current;
+
+        // Controlled player (team1[active])
+        const cp = players[active];
+        const char = CHARACTERS[cp.charIdx];
+        const spd = 130 + char.speed * 20;
+        let ax = 0, ay = 0;
+        if (keys.has("KeyA") || keys.has("ArrowLeft")) ax = -1;
+        if (keys.has("KeyD") || keys.has("ArrowRight")) ax = 1;
+        if (keys.has("KeyW") || keys.has("ArrowUp")) ay = -1;
+        if (keys.has("KeyS") || keys.has("ArrowDown")) ay = 1;
+        const kickKey = keys.has("Space") || keys.has("KeyF");
+
+        cp.vx = (cp.vx + ax * spd * dt) * 0.82;
+        cp.vy = (cp.vy + ay * spd * dt) * 0.82;
+        if (Math.abs(cp.vx) > 5) cp.facing = cp.vx > 0 ? 1 : -1;
+        cp.x = clamp(cp.x + cp.vx * dt, P_R, FIELD_W5 - P_R);
+        cp.y = clamp(cp.y + cp.vy * dt, P_R, FIELD_H5 - P_R);
+
+        // Bot logic for team1 non-active + all team2
+        for (let i = 0; i < 6; i++) {
+          if (i === active) continue;
+          const p = players[i];
+          const c = CHARACTERS[p.charIdx];
+          const bspd = 110 + c.speed * 18;
+          let tx: number, ty: number;
+
+          if (p.team === 1) {
+            // Team1 bots: support controlled player, stay in formation
+            tx = i === 1 ? FIELD_W5 * 0.3 : FIELD_W5 * 0.2;
+            ty = (i === 0) ? FIELD_H5 * 0.25 : FIELD_H5 * 0.75;
+            if (dist(p, ball) < 120) { tx = ball.x; ty = ball.y; }
+          } else {
+            // Team2 bots: aggressive
+            const hasBall = dist(p, ball) < P_R + B_R + 15;
+            if (hasBall) { tx = G_W + 5; ty = FIELD_H5 / 2; }
+            else {
+              tx = Math.max(FIELD_W5 * 0.5, ball.x + ball.vx * 0.2 - 30);
+              ty = ball.y + ball.vy * 0.2;
+            }
+          }
+
+          const ddx = tx - p.x, ddy = ty - p.y;
+          const mag = Math.sqrt(ddx * ddx + ddy * ddy) || 1;
+          p.vx = (p.vx + (ddx / mag) * bspd * dt) * 0.82;
+          p.vy = (p.vy + (ddy / mag) * bspd * dt) * 0.82;
+          if (Math.abs(p.vx) > 5) p.facing = p.vx > 0 ? 1 : -1;
+          p.x = clamp(p.x + p.vx * dt, P_R, FIELD_W5 - P_R);
+          p.y = clamp(p.y + p.vy * dt, P_R, FIELD_H5 - P_R);
+        }
+
+        // Ball physics
+        ball.vx *= 0.976; ball.vy *= 0.976;
+        ball.x += ball.vx * dt; ball.y += ball.vy * dt;
+
+        // Wall bounces + goals
+        if (ball.x - B_R < G_W) {
+          if (ball.y > G_Y && ball.y < G_Y + G_H && !goalLockRef.current) {
+            goalLockRef.current = true;
+            scoreRef.current.s2++;
+            eventsRef.current.push(`⚽ ГООООЛ! Команда 2 забивает! (${scoreRef.current.s1}:${scoreRef.current.s2})`);
+            setShowGoal(true); setGoalTeam(2); setConfetti(true);
+            setTimeout(() => { setShowGoal(false); setConfetti(false); goalLockRef.current = false; resetAll(); }, 2600);
+          } else { ball.vx = Math.abs(ball.vx) * 0.7; ball.x = G_W + B_R; }
+        }
+        if (ball.x + B_R > FIELD_W5 - G_W) {
+          if (ball.y > G_Y && ball.y < G_Y + G_H && !goalLockRef.current) {
+            goalLockRef.current = true;
+            scoreRef.current.s1++;
+            eventsRef.current.push(`⚽ ГООООЛ! Команда 1 забивает! (${scoreRef.current.s1}:${scoreRef.current.s2})`);
+            setShowGoal(true); setGoalTeam(1); setConfetti(true);
+            setTimeout(() => { setShowGoal(false); setConfetti(false); goalLockRef.current = false; resetAll(); }, 2600);
+          } else { ball.vx = -Math.abs(ball.vx) * 0.7; ball.x = FIELD_W5 - G_W - B_R; }
+        }
+        if (ball.y - B_R < 0) { ball.vy = Math.abs(ball.vy) * 0.7; ball.y = B_R; }
+        if (ball.y + B_R > FIELD_H5) { ball.vy = -Math.abs(ball.vy) * 0.7; ball.y = FIELD_H5 - B_R; }
+
+        // Player-ball interactions
+        for (let i = 0; i < 6; i++) {
+          const p = players[i];
+          const d = dist(p, ball);
+          if (d < P_R + B_R) {
+            const nx = (ball.x - p.x) / (d || 1);
+            const ny = (ball.y - p.y) / (d || 1);
+            const overlap = P_R + B_R - d;
+            ball.x += nx * overlap; ball.y += ny * overlap;
+            const rv = (ball.vx - p.vx) * nx + (ball.vy - p.vy) * ny;
+            if (rv < 0) { ball.vx -= rv * nx * 1.2; ball.vy -= rv * ny * 1.2; }
+
+            const isControlled = i === active;
+            const botKick = i !== active && dist(p, ball) < P_R + B_R + 5;
+            if ((isControlled ? kickKey : botKick) && p.kickCD <= 0) {
+              const c = CHARACTERS[p.charIdx];
+              const kpow = 260 + c.power * 28;
+              ball.vx = nx * kpow + (Math.random() - 0.5) * 60;
+              ball.vy = ny * kpow * 0.55 + (Math.random() - 0.5) * 60;
+              p.kickCD = 0.28;
+            }
+          }
+          p.kickCD = Math.max(0, p.kickCD - dt);
+        }
+
+        // Player-player collisions
+        for (let i = 0; i < 6; i++) {
+          for (let j = i + 1; j < 6; j++) {
+            const a = players[i], b = players[j];
+            const d = dist(a, b);
+            if (d < P_R * 2) {
+              const overlap = P_R * 2 - d;
+              const nx = (b.x - a.x) / (d || 1);
+              const ny = (b.y - a.y) / (d || 1);
+              a.x -= nx * overlap * 0.5; a.y -= ny * overlap * 0.5;
+              b.x += nx * overlap * 0.5; b.y += ny * overlap * 0.5;
+            }
+          }
+        }
+
+        gameT += dt;
+        if (gameT >= 1) {
+          gameT -= 1;
+          timeRef.current++;
+          if (timeRef.current >= DURATION) {
+            doneRef.current = true;
+            setTimeout(() => onFinish(scoreRef.current.s1, scoreRef.current.s2, eventsRef.current), 400);
+          }
+          if (timeRef.current % 10 === 0) {
+            const evt = MATCH_EVENTS_POOL[Math.floor(Math.random() * MATCH_EVENTS_POOL.length)];
+            eventsRef.current.push(`${timeRef.current}'  ${evt}`);
+            setTicker(evt);
+            setTimeout(() => setTicker("Tab — переключай, Пробел/F — удар!"), 3000);
+          }
+        }
+
+        displayT += dt;
+        if (displayT > 0.033) {
+          displayT = 0;
+          setDisplay({
+            players: players.map(p => ({ ...p })),
+            ball: { x: ball.x, y: ball.y },
+            score1: scoreRef.current.s1, score2: scoreRef.current.s2,
+            time: timeRef.current, active: activeRef.current,
+          });
+        }
+      }
+      frameId = requestAnimationFrame(tick);
+    };
+
+    frameId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameId);
+  }, [resetAll, onFinish]);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    const update = () => {
+      if (!containerRef.current) return;
+      const { width, height } = containerRef.current.getBoundingClientRect();
+      setScale(Math.min(width / FIELD_W5, height / FIELD_H5));
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  const TEAM_COLORS = ["#e63946", "#4361ee"];
+
+  return (
+    <FieldBg>
+      {confetti && <Confetti />}
+      {showGoal && (
+        <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none" style={{ background: "rgba(0,0,0,0.52)" }}>
+          <div className="font-fredoka text-center animate-pop-in" style={{ color: TEAM_COLORS[goalTeam - 1], fontSize: "clamp(52px,14vw,100px)", textShadow: "0 0 30px rgba(255,215,0,0.8), 4px 4px 0 #1a1a1a", WebkitTextStroke: "2px #1a1a1a" }}>
+            ГОООООЛ! ⚽
+            <div className="font-nunito text-white" style={{ fontSize: "clamp(14px,3.5vw,24px)", textShadow: "2px 2px 0 #000" }}>Команда {goalTeam}!</div>
+          </div>
+        </div>
+      )}
+
+      <div className="absolute inset-0 flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-3 py-1.5 flex-shrink-0" style={{ background: "rgba(0,0,0,0.82)" }}>
+          <div className="flex items-center gap-1.5">
+            {TEAM1.map((c, i) => (
+              <div key={i} onClick={() => { activeRef.current = i; }} className="cursor-pointer" style={{
+                width: 32, height: 32, borderRadius: "50%", overflow: "hidden",
+                border: `2.5px solid ${display.active === i ? "#FFD700" : c.color}`,
+                boxShadow: display.active === i ? `0 0 8px #FFD700` : "none",
+                opacity: display.active === i ? 1 : 0.6,
+              }}>
+                <img src={c.image} alt="" className="w-full h-full object-cover" />
+              </div>
+            ))}
+            <span className="font-nunito text-xs text-gray-300 ml-1">Tab/клик</span>
+          </div>
+
+          <div className="text-center">
+            <div className="font-fredoka text-4xl leading-none" style={{ color: "#FFD700", textShadow: "3px 3px 0 rgba(0,0,0,0.5)" }}>
+              {display.score1} : {display.score2}
+            </div>
+            <div className="font-nunito text-xs text-gray-400">{display.time}' / {DURATION}'</div>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-row-reverse">
+            {TEAM2.map((c, i) => (
+              <div key={i} style={{ width: 32, height: 32, borderRadius: "50%", overflow: "hidden", border: `2.5px solid ${c.color}`, opacity: 0.85 }}>
+                <img src={c.image} alt="" className="w-full h-full object-cover" />
+              </div>
+            ))}
+            <span className="font-nunito text-xs text-gray-300 mr-1">🤖 Боты</span>
+          </div>
+        </div>
+
+        {/* Progress */}
+        <div className="h-1.5 flex-shrink-0" style={{ background: "rgba(0,0,0,0.3)" }}>
+          <div className="h-full transition-all" style={{ width: `${(display.time / DURATION) * 100}%`, background: "linear-gradient(90deg, #e63946, #FFD700, #4361ee)" }} />
+        </div>
+
+        {/* Field */}
+        <div ref={containerRef} className="flex-1 relative overflow-hidden flex items-center justify-center">
+          <div style={{ width: FIELD_W5, height: FIELD_H5, transform: `scale(${scale})`, transformOrigin: "center center", position: "relative", flexShrink: 0 }}>
+            {/* Markings */}
+            <div style={{ position: "absolute", inset: 0 }}>
+              <div style={{ position: "absolute", top: FIELD_H5 / 2 - 70, left: FIELD_W5 / 2 - 70, width: 140, height: 140, border: "2px solid rgba(255,255,255,0.28)", borderRadius: "50%" }} />
+              <div style={{ position: "absolute", top: 0, bottom: 0, left: "50%", width: 2, background: "rgba(255,255,255,0.22)" }} />
+            </div>
+            {/* Goals */}
+            <div style={{ position: "absolute", left: 0, top: G_Y, width: G_W, height: G_H, background: "rgba(255,255,255,0.15)", border: "3px solid white", borderLeft: "none", borderRadius: "0 6px 6px 0" }} />
+            <div style={{ position: "absolute", right: 0, top: G_Y, width: G_W, height: G_H, background: "rgba(255,255,255,0.15)", border: "3px solid white", borderRight: "none", borderRadius: "6px 0 0 6px" }} />
+
+            {/* Ball */}
+            <div style={{ position: "absolute", left: display.ball.x - B_R, top: display.ball.y - B_R, width: B_R * 2, height: B_R * 2, fontSize: B_R * 2, lineHeight: 1, filter: "drop-shadow(1px 3px 3px rgba(0,0,0,0.35))", userSelect: "none" }}>⚽</div>
+
+            {/* Players */}
+            {display.players.map((p, i) => {
+              const char = CHARACTERS[p.charIdx];
+              const isActive = p.team === 1 && i === display.active;
+              return (
+                <div key={i} style={{ position: "absolute", left: p.x - P_R, top: p.y - P_R, width: P_R * 2, height: P_R * 2, transform: p.facing < 0 ? "scaleX(-1)" : "none" }}>
+                  <div style={{
+                    width: "100%", height: "100%", borderRadius: "50%", overflow: "hidden",
+                    border: `3px solid ${isActive ? "#FFD700" : (p.team === 1 ? "#e63946" : "#4361ee")}`,
+                    boxShadow: isActive ? "0 0 10px #FFD700, 2px 2px 0 #1a1a1a" : "1px 1px 0 #1a1a1a",
+                  }}>
+                    <img src={char.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  </div>
+                  {isActive && (
+                    <div style={{ position: "absolute", top: -14, left: "50%", transform: "translateX(-50%)", fontSize: 10, color: "#FFD700", fontFamily: "'Fredoka One',cursive", whiteSpace: "nowrap", textShadow: "1px 1px 0 #000" }}>▼</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Ticker */}
+        <div className="px-3 py-1.5 flex items-center gap-2 flex-shrink-0" style={{ background: "rgba(0,0,0,0.82)" }}>
+          <span className="text-base">📢</span>
+          <span className="font-nunito text-xs text-white flex-1 animate-fade-in" key={ticker} style={{ textShadow: "1px 1px 0 #000" }}>{ticker}</span>
+          <button className="btn-cartoon rounded-lg px-2 py-1 font-fredoka text-xs" style={{ background: "#FFD700", color: "#1a1a1a" }}
+            onClick={() => onFinish(scoreRef.current.s1, scoreRef.current.s2, eventsRef.current)}>
+            Финал
+          </button>
+        </div>
+      </div>
+    </FieldBg>
+  );
+}
+
 // ===================== MAIN =====================
 export default function Index() {
   const [screen, setScreen] = useState<Screen>("menu");
@@ -1238,6 +1731,7 @@ export default function Index() {
   const [char2, setChar2] = useState<number | null>(null);
   const [mode, setMode] = useState<GameMode>("vs-bot");
   const [matchData, setMatchData] = useState({ s1: 0, s2: 0, events: [] as string[] });
+  const [playerName, setPlayerName] = useState<string>(() => localStorage.getItem("futbolol_name") || "");
 
   const go = (s: Screen) => setScreen(s);
 
@@ -1251,9 +1745,19 @@ export default function Index() {
     go("stats");
   };
 
+  const handleSetName = (name: string) => {
+    setPlayerName(name);
+    localStorage.setItem("futbolol_name", name);
+    go("select");
+  };
+
   return (
     <div style={{ width: "100vw", height: "100vh", overflow: "hidden" }}>
-      {screen === "menu" && <MenuScreen onStart={() => go("select")} />}
+      {screen === "menu" && <MenuScreen onStart={() => playerName ? go("select") : go("nickname")} onLeaderboard={() => go("leaderboard")} />}
+
+      {screen === "nickname" && <NicknameScreen current={playerName} onConfirm={handleSetName} onBack={() => go("menu")} />}
+
+      {screen === "leaderboard" && <LeaderboardScreen playerName={playerName} onBack={() => go("menu")} />}
 
       {screen === "select" && (
         <SelectScreen
@@ -1281,7 +1785,9 @@ export default function Index() {
         <ModeScreen
           onSelect={(m) => {
             setMode(m);
-            if (m === "vs-player") {
+            if (m === "5player") {
+              go("game5");
+            } else if (m === "vs-player") {
               setChar2(null);
               go("select2");
             } else {
@@ -1296,6 +1802,10 @@ export default function Index() {
 
       {screen === "game" && char1 && char2 && (
         <GameScreen char1Id={char1} char2Id={char2} mode={mode} onFinish={handleFinish} onStats={handleStats} />
+      )}
+
+      {screen === "game5" && (
+        <Game5Screen onFinish={handleFinish} />
       )}
 
       {screen === "stats" && char1 && char2 && (
@@ -1317,6 +1827,7 @@ export default function Index() {
           char1Id={char1}
           char2Id={char2}
           mode={mode}
+          playerName={playerName}
           onRestart={() => { setChar1(null); setChar2(null); go("select"); }}
           onMenu={() => { setChar1(null); setChar2(null); go("menu"); }}
         />

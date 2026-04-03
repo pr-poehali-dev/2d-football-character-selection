@@ -1,0 +1,30 @@
+{
+  "tests": [
+    {
+      "name": "GET leaderboard",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": {"leaderboard": []},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "POST win",
+      "method": "POST",
+      "path": "/",
+      "body": {"name": "ТестИгрок", "won": true},
+      "expectedStatus": 200,
+      "expectedBody": {"score": 100, "wins": 1},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "POST loss",
+      "method": "POST",
+      "path": "/",
+      "body": {"name": "ТестИгрок2", "won": false},
+      "expectedStatus": 200,
+      "expectedBody": {"wins": 0, "losses": 1},
+      "bodyMatcher": "partial"
+    }
+  ]
+}
